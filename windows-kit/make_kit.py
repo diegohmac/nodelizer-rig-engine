@@ -9,7 +9,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 ENGINE_FILES = ["rigengine.py", "engine", "standin", "build", "LICENSE", "README.md", "PROTOCOL.md", "PATCHES.md",
-                "THIRD_PARTY.md"]
+                "THIRD_PARTY.md", "protocol.schema.json"]
 KIT_FILES = {"README.md": "README.md", "run_engine_kit.py": "run_engine_kit.py", "expected.json": "expected.json"}
 ALLOWED_SUFFIXES = {".py", ".md", ".json", ""}
 LIMIT = 1024 * 1024  # the overlay is small; anything bigger means something slipped in

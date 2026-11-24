@@ -21,7 +21,7 @@ Nothing passes between steps as pickle: files are `.npz` with `allow_pickle=Fals
 - **One model per process.** Both models call their package `src`; `engine/modelpath.py` puts one model's folder on the path and refuses the other.
 - **Same seed, same rig.** SkinTokens is seeded right before its job and its one fetch is seeded as a data loader worker would be, since the sandbox allows no worker process (`engine/seeding.py`). The write step seeds the export with the rig file's seed.
 - **The rig step runs in the model's folder.** Both models name their configs relative to it, and their checkpoints too; the drivers take the checkpoints from the weights folder instead. The engine folder may be read only; everything written goes to the work folder.
-- **The app passes only Windows' own five variables.** The engine sets every folder and flag it needs itself, from `--work` and `--cache` (`engine/workspace.py`).
+- **The app passes only six variables Windows needs.** The engine sets every folder and flag it needs itself, from `--work` and `--cache` (`engine/workspace.py`).
 - **Standard names follow the parent structure only** (`engine/names.py`). Whether the bones also sit where the names say is reported, never used to decide.
 - **The entry is `rigengine.py`, never `run.py`.** The Windows kit's Python imports PyTorch at start for any script named `run.py` (UniRig's), which would break the read and write steps.
 

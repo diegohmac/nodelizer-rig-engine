@@ -179,6 +179,7 @@ The launcher passes exactly the variables Windows needs to start a program and l
 | `windir` | The same as `SystemRoot`, for older code. |
 | `NUMBER_OF_PROCESSORS` | The thread pools of NumPy, OpenMP and PyTorch size themselves by it. |
 | `PROCESSOR_ARCHITECTURE` | Python and the libraries read the machine type from it. |
+| `LOCALAPPDATA` | Windows works out the AppContainer's own folders from it and won't start a program in one without it (the launcher exits with `0x4E4C5207`). Inside, the engine sees the container's folder, not the person's, and then points it into the work folder. |
 
 No `PATH` is needed: Python finds its own libraries beside `python.exe`, PyTorch adds its folder of CUDA libraries itself (the engine adds it too, for spconv and torch_scatter), and the driver's libraries load from the system folder. No `CUDA_VISIBLE_DEVICES`: `rig --device` chooses the card.
 

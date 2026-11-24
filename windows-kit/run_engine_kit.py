@@ -48,8 +48,10 @@ MODELS = ("skintokens", "unirig")
 KEEP = {"tira_tail"}
 
 # Exactly the variables the app's launcher passes (apps/desktop/src/main/free-image/sandbox.ts):
-# Windows' own five. The engine sets everything else itself (PROTOCOL.md, Environment).
-WINDOWS_VARIABLES = ("SystemRoot", "SystemDrive", "windir", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE")
+# What Windows needs to start a program in the AppContainer (PROTOCOL.md, Environment). Without
+# LOCALAPPDATA the launcher can't start anything (exit 0x4E4C5207). The engine sets the rest itself.
+WINDOWS_VARIABLES = ("SystemRoot", "SystemDrive", "windir", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE",
+                     "LOCALAPPDATA")
 
 
 def windows_environment():
