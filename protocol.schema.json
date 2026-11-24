@@ -1,0 +1,261 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nodelizer.com/rig-engine/protocol-1.schema.json",
+  "title": "Rig engine stdout line, protocol 1",
+  "description": "Every line the engine writes to stdout is one JSON object matching this schema. See PROTOCOL.md.",
+  "oneOf": [
+    {"$ref": "#/$defs/progress"},
+    {"$ref": "#/$defs/probe_result"},
+    {"$ref": "#/$defs/read_result"},
+    {"$ref": "#/$defs/rig_result"},
+    {"$ref": "#/$defs/write_result"},
+    {"$ref": "#/$defs/error"}
+  ],
+  "$defs": {
+    "step": {"enum": ["probe", "read", "rig", "write", "unknown"]},
+    "seconds": {"type": "number", "minimum": 0},
+    "bytes": {"type": "integer", "minimum": 0},
+    "model": {"enum": ["skintokens", "unirig"]},
+    "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{12}$"},
+    "nothing_forbidden": {"type": "array", "maxItems": 0},
+    "device": {
+      "type": "object",
+      "required": ["index", "name", "total_bytes"],
+      "additionalProperties": false,
+      "properties": {
+        "index": {"type": "integer", "minimum": 0},
+        "name": {"type": "string"},
+        "total_bytes": {"$ref": "#/$defs/bytes"},
+        "free_bytes": {"$ref": "#/$defs/bytes"},
+        "capability": {"type": ["string", "null"]}
+      }
+    },
+    "progress": {
+      "type": "object",
+      "required": ["type", "step", "protocol", "stage", "seconds"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "progress"},
+        "step": {"$ref": "#/$defs/step"},
+        "protocol": {"const": 1},
+        "seconds": {"$ref": "#/$defs/seconds"},
+        "stage": {"enum": ["starting", "loading_libraries", "loading_file", "card", "loading_model", "preparing",
+                           "generating", "skinning", "saving", "writing", "verifying_weights"]},
+        "heartbeat": {"const": true},
+        "pid": {"type": "integer"},
+        "engine_version": {"type": "string"},
+        "model": {"$ref": "#/$defs/model"},
+        "device": {"type": "integer", "minimum": 0},
+        "card": {"type": "string"},
+        "free_bytes": {"$ref": "#/$defs/bytes"},
+        "total_bytes": {"$ref": "#/$defs/bytes"},
+        "capability": {"type": "string"},
+        "devices": {"type": "integer", "minimum": 1}
+      },
+      "allOf": [
+        {"if": {"properties": {"stage": {"const": "starting"}}, "not": {"required": ["heartbeat"]}},
+         "then": {"required": ["pid", "engine_version"]}},
+        {"if": {"properties": {"stage": {"const": "card"}}, "not": {"required": ["heartbeat"]}},
+         "then": {"required": ["device", "card", "free_bytes", "total_bytes", "capability", "devices"]}}
+      ]
+    },
+    "result_base": {
+      "required": ["type", "step", "protocol", "seconds", "forbidden_modules_loaded"],
+      "properties": {
+        "type": {"const": "result"},
+        "protocol": {"const": 1},
+        "seconds": {"$ref": "#/$defs/seconds"},
+        "forbidden_modules_loaded": {"$ref": "#/$defs/nothing_forbidden"}
+      }
+    },
+    "probe_result": {
+      "type": "object",
+      "allOf": [{"$ref": "#/$defs/result_base"}],
+      "required": ["engine_version", "light", "devices", "default_device", "devices_from", "python"],
+      "additionalProperties": false,
+      "properties": {
+        "type": true, "protocol": true, "seconds": true, "forbidden_modules_loaded": true,
+        "step": {"const": "probe"},
+        "engine_version": {"type": "string"},
+        "light": {"type": "boolean"},
+        "package": {"type": "object"},
+        "nvml_seconds": {"$ref": "#/$defs/seconds"},
+        "devices_from": {"enum": ["nvml", "torch"]},
+        "driver": {"type": ["string", "null"]},
+        "python": {"type": "string"},
+        "torch": {"type": "string"},
+        "cuda": {"type": ["string", "null"]},
+        "cuda_available": {"type": "boolean"},
+        "torch_devices": {"type": "integer"},
+        "devices": {"type": "array", "items": {"$ref": "#/$defs/device"}},
+        "default_device": {"type": ["integer", "null"]},
+        "models": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {"skintokens": {"$ref": "#/$defs/model_status"}, "unirig": {"$ref": "#/$defs/model_status"}}
+        }
+      }
+    },
+    "model_status": {
+      "type": "object",
+      "required": ["needs_free_bytes", "code"],
+      "additionalProperties": false,
+      "properties": {
+        "needs_free_bytes": {"$ref": "#/$defs/bytes"},
+        "code": {"type": "boolean"},
+        "missing_code": {"type": "array", "items": {"type": "string"}},
+        "weights": {"type": "boolean"},
+        "missing_weights": {"type": "array", "items": {"type": "string"}},
+        "verified": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["present", "ok"],
+            "additionalProperties": false,
+            "properties": {"present": {"type": "boolean"}, "ok": {"type": "boolean"}, "bytes": {"$ref": "#/$defs/bytes"},
+                           "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+          }
+        },
+        "normal_speed_on_default_device": {"type": "boolean"}
+      }
+    },
+    "read_result": {
+      "type": "object",
+      "allOf": [{"$ref": "#/$defs/result_base"}],
+      "required": ["model", "output", "has_skeleton", "bone_count", "armatures", "armature_bones", "vertices", "faces"],
+      "additionalProperties": false,
+      "properties": {
+        "type": true, "protocol": true, "seconds": true, "forbidden_modules_loaded": true,
+        "step": {"const": "read"},
+        "model": {"$ref": "#/$defs/model"},
+        "output": {"type": "string"},
+        "has_skeleton": {"type": "boolean"},
+        "bone_count": {"type": "integer", "minimum": 0},
+        "armatures": {"type": "integer", "minimum": 0},
+        "armature_bones": {"type": "integer", "minimum": 0},
+        "vertices": {"type": "integer", "minimum": 1},
+        "faces": {"type": "integer", "minimum": 1},
+        "meshes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "standard_names": {
+      "type": "object",
+      "required": ["asked", "matched", "layout", "placement_warnings"],
+      "additionalProperties": false,
+      "properties": {
+        "asked": {"type": "boolean"},
+        "matched": {"type": "boolean"},
+        "layout": {"enum": [null, "body22", "full52-yaml", "full52-dfs"]},
+        "placement_warnings": {"type": "array", "items": {"type": "string"}},
+        "note": {"type": "string"}
+      }
+    },
+    "rig_result": {
+      "type": "object",
+      "allOf": [{"$ref": "#/$defs/result_base"}],
+      "required": ["model", "output", "seed", "stage", "bones", "skeleton", "names", "fingerprints", "memory",
+                   "python", "torch"],
+      "additionalProperties": false,
+      "properties": {
+        "type": true, "protocol": true, "seconds": true, "forbidden_modules_loaded": true,
+        "step": {"const": "rig"},
+        "model": {"$ref": "#/$defs/model"},
+        "output": {"type": "string"},
+        "seed": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        "stage": {"enum": ["final", "skeleton"]},
+        "bones": {"type": "integer", "minimum": 1},
+        "skeleton": {"enum": ["made", "kept"]},
+        "names": {"enum": ["standard", "numbered", "kept", "model"]},
+        "standard_names": {"$ref": "#/$defs/standard_names"},
+        "keep_skeleton": {"type": ["string", "null"]},
+        "keep_check": {"type": "object"},
+        "input_skeleton_ignored": {"type": "boolean"},
+        "fingerprints": {"type": "object", "additionalProperties": {"$ref": "#/$defs/fingerprint"}},
+        "memory": {
+          "type": "object",
+          "required": ["device", "card", "free_bytes", "total_bytes", "needs_free_bytes", "peak_allocated_bytes",
+                       "peak_reserved_bytes"],
+          "additionalProperties": false,
+          "properties": {
+            "device": {"type": "integer"}, "card": {"type": "string"}, "capability": {"type": "string"},
+            "devices": {"type": "integer"}, "free_bytes": {"$ref": "#/$defs/bytes"},
+            "total_bytes": {"$ref": "#/$defs/bytes"}, "needs_free_bytes": {"$ref": "#/$defs/bytes"},
+            "peak_allocated_bytes": {"$ref": "#/$defs/bytes"}, "peak_reserved_bytes": {"$ref": "#/$defs/bytes"}
+          }
+        },
+        "cache": {
+          "type": "object", "additionalProperties": false,
+          "properties": {"stale_markers": {"type": "integer"}, "cuda_cache_emptied": {"type": "boolean"}}
+        },
+        "python": {"type": "string"},
+        "torch": {"type": "string"},
+        "cuda": {"type": ["string", "null"]}
+      }
+    },
+    "write_result": {
+      "type": "object",
+      "allOf": [{"$ref": "#/$defs/result_base"}],
+      "required": ["model", "stage", "output", "bytes", "sha256", "names", "skeleton"],
+      "additionalProperties": false,
+      "properties": {
+        "type": true, "protocol": true, "seconds": true, "forbidden_modules_loaded": true,
+        "step": {"const": "write"},
+        "model": {"$ref": "#/$defs/model"},
+        "stage": {"enum": ["final", "skeleton"]},
+        "output": {"type": "string"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "names": {"enum": ["standard", "numbered", "kept", "model"]},
+        "skeleton": {"enum": ["made", "kept"]},
+        "bones": {"type": "integer", "minimum": 1},
+        "extra_bones": {"type": "array", "items": {"const": "neutral_bone"}, "maxItems": 1},
+        "meshes": {"type": "integer", "minimum": 1},
+        "materials": {"type": "integer", "minimum": 0},
+        "images": {"type": "integer", "minimum": 0}
+      },
+      "if": {"properties": {"stage": {"const": "final"}}},
+      "then": {"required": ["bones", "extra_bones", "meshes", "materials", "images"]}
+    },
+    "error": {
+      "type": "object",
+      "required": ["type", "step", "protocol", "seconds", "code", "message"],
+      "properties": {
+        "type": {"const": "error"},
+        "step": {"$ref": "#/$defs/step"},
+        "protocol": {"const": 1},
+        "seconds": {"$ref": "#/$defs/seconds"},
+        "message": {"type": "string"},
+        "code": {"enum": ["bad_arguments", "bad_input", "read_failed", "no_mesh", "skeleton_not_kept", "no_cuda",
+                          "out_of_memory", "bad_weights", "rig_failed", "write_failed", "forbidden_module",
+                          "internal"]},
+        "path": {"type": "string"},
+        "keep_check": {"type": "object"},
+        "torch": {"type": "string"},
+        "built_for": {"type": ["string", "null"]},
+        "devices": {"type": "array", "items": {"$ref": "#/$defs/device"}},
+        "missing": {"type": "array", "items": {"type": "string"}},
+        "bones_written": {"type": "integer"},
+        "bones_expected": {"type": "integer"},
+        "extra_bones": {"type": "array", "items": {"type": "string"}},
+        "modules": {"type": "array", "items": {"type": "string"}}
+      },
+      "unevaluatedProperties": false,
+      "allOf": [
+        {"if": {"properties": {"code": {"enum": ["bad_arguments", "bad_input"]}}},
+         "else": {"not": {"required": ["path"]}}},
+        {"if": {"properties": {"code": {"const": "skeleton_not_kept"}}},
+         "else": {"not": {"required": ["keep_check"]}}},
+        {"if": {"properties": {"code": {"const": "no_cuda"}}},
+         "else": {"not": {"anyOf": [{"required": ["torch"]}, {"required": ["built_for"]}, {"required": ["devices"]}]}}},
+        {"if": {"properties": {"code": {"enum": ["bad_weights", "internal"]}}},
+         "else": {"not": {"required": ["missing"]}}},
+        {"if": {"properties": {"code": {"const": "write_failed"}}},
+         "else": {"not": {"anyOf": [{"required": ["bones_written"]}, {"required": ["bones_expected"]},
+                                    {"required": ["extra_bones"]}]}}},
+        {"if": {"properties": {"code": {"const": "forbidden_module"}}},
+         "then": {"required": ["modules"]},
+         "else": {"not": {"required": ["modules"]}}}
+      ]
+    }
+  }
+}
