@@ -1,0 +1,54 @@
+;; Sandbox for the rig engine on a Mac (a proposal for the app, which starts each step with
+;; /usr/bin/sandbox-exec -f rig-engine.sb -D ROOT=... -D WEIGHTS=... -D INPUT=... -D WORK=... -D CACHE=...).
+;; Everything is denied unless allowed below: no network of any kind, no other programs, no files but
+;; the engine root (Python and the engine), the model's weights folder, the folder of the model file
+;; (all read only), and the work and cache folders. Built on the app's own profile for its image engine
+;; (apps/desktop/resources/free-image/engine.sb).
+;; Parameters: ROOT (the engine root), PYTHON (its Python executable, ROOT/python/bin/python3.11),
+;; WEIGHTS (SkinTokens' weights folder), INPUT (the folder of the model file; the work folder when the
+;; file is in it), WORK (the work folder), CACHE (the cache folder; the work folder when there is none),
+;; METAL (`allow` for the read and write steps, left out for probe and rig).
+;; Every path is the real path (no links), as sandbox-exec matches real paths.
+(version 1)
+(deny default)
+
+;; Start Python itself, and nothing else (the rig step starts itself again in place once, rigengine.py).
+(allow process-exec (literal (param "PYTHON")))
+(deny process-fork)
+
+;; The system's base rules (dyld, the shared cache, system libraries, logging), as Apple's own daemons
+;; use them. They allow no network beyond the system log socket, which the last rules deny.
+(import "system.sb")
+(allow file-read* (literal "/dev/urandom") (literal "/dev/random"))
+(allow file-write* (literal "/dev/null"))
+(allow sysctl-read)
+
+;; The engine root (its Python, packages and code; the libraries in it are mapped as code), the
+;; weights, the model file's folder, and the two folders a step writes.
+(allow file-read* file-map-executable (subpath (param "ROOT")))
+(allow file-read* (subpath (param "WEIGHTS")))
+(allow file-read* (subpath (param "INPUT")))
+(allow file-read* file-write* (subpath (param "WORK")))
+(allow file-read* file-write* (subpath (param "CACHE")))
+(allow file-read-metadata
+  (path-ancestors (param "ROOT"))
+  (path-ancestors (param "WEIGHTS"))
+  (path-ancestors (param "INPUT"))
+  (path-ancestors (param "WORK"))
+  (path-ancestors (param "CACHE")))
+
+;; Metal's driver, for the read and write steps only (-D METAL=allow): Blender's module asks Metal for
+;; the GPU's name while it starts, to pick a drawing backend even though it draws nothing, and crashes
+;; (a null name) when the driver can't be opened. The probe and rig steps get no GPU: the engine runs
+;; on the processor. PyTorch's MPS device (`rig --device mps`, for measuring only) would need the same
+;; rule in the rig step; without it PyTorch reports MPS unavailable and `--device mps` fails with
+;; no_cuda. MPS would also try to save compiled graphs in a com.apple.MetalPerformanceShadersGraph
+;; folder outside these folders, which is refused either way and only logs to stderr.
+(if (equal? (param "METAL") "allow")
+    (allow iokit-open (iokit-user-client-class "AGXDeviceUserClient")))
+
+;; No network: not the internet, not this computer, not a local socket. system.sb allows the system
+;; log's socket by name, which a plain (deny network*) doesn't override; it is denied by name too (the
+;; engine logs to stderr, and Apple's own logging goes through logd, not that socket).
+(deny network*)
+(deny network-outbound (literal "/private/var/run/syslog"))

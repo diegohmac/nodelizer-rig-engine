@@ -1,0 +1,15 @@
+# What SkinTokens' three steps import on a Mac (read and write: Blender's module; rig: PyTorch), at the
+# Windows pins. build/mac/lock.sh resolves this into requirements-mac.txt with every dependency and its
+# SHA-256, for macOS on Apple silicon (macosx_11_0_arm64) and Python 3.11.
+torch==2.7.1
+bpy==4.2.0
+numpy==1.26.4
+scipy==1.17.1
+trimesh==5.2.2
+transformers==4.57.6
+diffusers==0.35.2
+lightning==2.6.6
+einops==0.8.2
+omegaconf==2.4.0
+python-box==8.0.1
+addict==2.4.0

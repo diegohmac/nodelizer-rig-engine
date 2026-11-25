@@ -35,6 +35,17 @@ GIB = 2**30
 # 6.7 GiB) plus 0.4 GiB. With less, Windows spills into system memory: the rig still comes out, slower
 # (SkinTokens took 4.5 times as long at 5.2 GiB free).
 NEEDS_FREE_BYTES = {"skintokens": int(5.5 * GIB), "unirig": int(7.5 * GIB)}
+# The same on the processor, where the model uses the computer's own memory, for each of a Mac's memory
+# modes (PROTOCOL.md, Devices): the largest peak footprint measured on a Mac in float32 plus a margin,
+# as macOS needs room besides. Lean: 5.7 GiB (a kept skeleton of 58 bones; 4.9 to 5.2 GiB for made
+# ones) plus 1.3 GiB. Fast: 11.3 GiB (a kept skeleton of 58 bones; 10.3 GiB for
+# mine_rodin's 52 made ones) plus 1.7 GiB. With less available macOS swaps: the rig still comes out,
+# slower. Elsewhere (Linux) the lean figure.
+NEEDS_FREE_BYTES_HOST = {"lean": {"skintokens": int(7 * GIB)}, "fast": {"skintokens": int(13 * GIB)}}
+
+
+def needs_host(model, mode):
+    return NEEDS_FREE_BYTES_HOST[mode or "lean"][model]
 
 
 def folder(model, value):

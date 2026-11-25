@@ -6,6 +6,10 @@ skips a 35 second random fill the checkpoint overwrites anyway), model.eval(), t
 transform, the fetch seeded as a data loader worker would be, demo.py's generation settings, and
 predict_step(make_asset=True). The only change in the data path is where the Asset comes from: the
 read file, holding exactly what BpyParser.load returned, instead of Blender in this process.
+
+On CUDA (`device` is the card's number) every call is as it was. On the processor or a Mac's GPU
+(`device` is an engine.devices.Device), _adapt points SkinTokens' own torch.autocast('cuda', ...) at that
+device first, and the model loads there in the device's number type (engine/devices.py, PRECISION).
 """
 import os
 
@@ -22,7 +26,52 @@ GENERATE = dict(max_length=2048, top_k=5, top_p=0.95, temperature=1.0, repetitio
                 num_return_sequences=1, num_beams=10, do_sample=True)
 
 
-def _load_model(torch, weights_folder, events):
+def _on_cuda(device):
+    return not hasattr(device, "kind")
+
+
+def _adapt(torch, device, events):
+    """Off CUDA, before any of SkinTokens' modules load. SkinTokens wraps its work in
+    @torch.autocast(device_type='cuda', dtype=torch.bfloat16), which does nothing without CUDA and would
+    leave its bfloat16 weights meeting float32 inputs. Here that autocast runs on the device instead:
+    in bfloat16 as written, or switched off for float32, where the model is turned to float32 after it
+    loads and the skin VAE's one hand made cast of its query to bfloat16 (skin_vae_model.py) follows the
+    keys' type instead. SkinTokens' skin is decoded after its tokens; a `skinning` line says when."""
+    kind, precision = device.kind, device.precision
+    upstream = torch.autocast
+
+    class DeviceAutocast(upstream):
+        def __init__(self, device_type, *args, **kwargs):
+            if device_type == "cuda":
+                device_type = kind
+                if precision == "float32":
+                    kwargs["enabled"] = False
+            super().__init__(device_type, *args, **kwargs)
+
+    torch.autocast = DeviceAutocast
+    import src.model.skin_vae_model as vae
+    import src.model.tokenrig as tokenrig
+
+    if precision == "float32":
+        inner = vae.flash_attn_func
+        vae.flash_attn_func = lambda q, k, v, *args, **kwargs: inner(q.to(k.dtype), k, v, *args, **kwargs)
+    decode = tokenrig.decode
+
+    def decode_reporting(*args, **kwargs):
+        events.progress("skinning")
+        return decode(*args, **kwargs)
+
+    tokenrig.decode = decode_reporting
+
+
+def _synchronize(torch, device):
+    if _on_cuda(device):
+        torch.cuda.synchronize()
+    elif device.kind == "mps":
+        torch.mps.synchronize()
+
+
+def _load_model(torch, weights_folder, events, device):
     from transformers.modeling_utils import no_init_weights
 
     from src.data.transform import Transform
@@ -44,17 +93,22 @@ def _load_model(torch, weights_folder, events):
     events.progress("loading_model")
     try:
         with no_init_weights():
-            model = get_model(CKPT, hf_path=None)
+            if _on_cuda(device):
+                model = get_model(CKPT, hf_path=None)
+            else:
+                model = get_model(CKPT, hf_path=None, device=device.kind)
+                if device.precision == "float32":
+                    model = model.float()
     except Exception as error:
         raise weights_failure(error, "SkinTokens' weights would not load")
     model.eval()  # demo.py never does this; without it dropout stays on and runs don't repeat
     tokenizer = get_tokenizer(**model.tokenizer_config)
     transform = Transform.parse(**model.transform_config["predict_transform"])
-    torch.cuda.synchronize()
+    _synchronize(torch, device)
     return model, tokenizer, transform
 
 
-def _fetch(read_path, arrays, with_skeleton, model, tokenizer, transform, seed, torch):
+def _fetch(read_path, arrays, with_skeleton, model, tokenizer, transform, seed, torch, device):
     """One batch, made exactly as st_rig.py makes it, from the read file instead of Blender."""
     from src.data.datapath import LazyAsset
     from src.data.dataset import DatasetConfig, RigDatasetModule
@@ -79,7 +133,14 @@ def _fetch(read_path, arrays, with_skeleton, model, tokenizer, transform, seed, 
     module = RigDatasetModule(predict_dataset_config=config, predict_transform=transform,
                               tokenizer=tokenizer, process_fn=model._process_fn)
     batches = iter(module.predict_dataloader()[CLASS])
-    return seeding.fetch_like_a_worker(batches, torch)
+    if _on_cuda(device) or device.kind != "mps":
+        return seeding.fetch_like_a_worker(batches, torch)
+    # As CUDA's generator is around the fetch (fork_rng), the GPU's is kept as it was before it.
+    state = torch.mps.get_rng_state()
+    try:
+        return seeding.fetch_like_a_worker(batches, torch)
+    finally:
+        torch.mps.set_rng_state(state)
 
 
 def rig(root, weights_folder, read_path, arrays, seed, keep_skeleton, standard_names, torch, device, events):
@@ -87,17 +148,20 @@ def rig(root, weights_folder, read_path, arrays, seed, keep_skeleton, standard_n
     os.chdir(root)  # SkinTokens names Qwen3's config and its skeleton configs relative to its folder
     from torch import Tensor
 
-    model, tokenizer, transform = _load_model(torch, weights_folder, events)
+    if not _on_cuda(device):
+        _adapt(torch, device, events)
+    model, tokenizer, transform = _load_model(torch, weights_folder, events, device)
     has_skeleton = bool(arrays["has_skeleton"][()])
     keeping = keep_skeleton and has_skeleton
     info = {"skeleton": "made", "keep_skeleton": None}
     if keep_skeleton and not has_skeleton:
         info["keep_skeleton"] = "the file has no skeleton, so one was made"
 
-    torch.cuda.reset_peak_memory_stats(device)
+    if _on_cuda(device):
+        torch.cuda.reset_peak_memory_stats(device)
     events.progress("preparing")
     try:
-        batch = _fetch(read_path, arrays, True, model, tokenizer, transform, seed, torch)
+        batch = _fetch(read_path, arrays, True, model, tokenizer, transform, seed, torch, device)
     except Exception as error:
         if keeping:
             raise EngineError("skeleton_not_kept", f"SkinTokens could not take the file's skeleton: "
@@ -109,10 +173,11 @@ def rig(root, weights_folder, read_path, arrays, seed, keep_skeleton, standard_n
         log(f"the file's skeleton was not usable ({type(error).__name__}: {error}); rigging without it")
         info["input_skeleton_ignored"] = True
         try:
-            batch = _fetch(read_path, arrays, False, model, tokenizer, transform, seed, torch)
+            batch = _fetch(read_path, arrays, False, model, tokenizer, transform, seed, torch, device)
         except Exception as again:
             raise model_failure(again, "SkinTokens could not prepare the model file")
-    batch = {k: v.to("cuda") if isinstance(v, Tensor) else v for k, v in batch.items()}
+    target = "cuda" if _on_cuda(device) else device.kind
+    batch = {k: v.to(target) if isinstance(v, Tensor) else v for k, v in batch.items()}
     batch["generate_kwargs"] = dict(GENERATE)
     fingerprints = {"points": fingerprint.fp(batch["vertices"])}
 
@@ -154,7 +219,7 @@ def rig(root, weights_folder, read_path, arrays, seed, keep_skeleton, standard_n
         except Exception as error:
             raise model_failure(error, "SkinTokens failed to rig the file")
         out = result.detokenize_output
-    torch.cuda.synchronize()
+    _synchronize(torch, device)
     if result.skin_pred is None or result.asset is None or result.asset.skin is None:
         raise EngineError("rig_failed", "SkinTokens made a skeleton but no skin for it")
 

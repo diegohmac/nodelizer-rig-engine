@@ -22,7 +22,9 @@ ERROR_CODES = {
     "read_failed": "Blender could not read the model file.",
     "no_mesh": "The model file has no mesh to rig.",
     "skeleton_not_kept": "The skeleton could not be kept: the model gave back different bones than the file has.",
-    "no_cuda": "No NVIDIA card PyTorch can use: no card, the asked device missing, or a driver too old.",
+    "no_cuda": "No NVIDIA card PyTorch can use: no card, the asked device missing, or a driver too old. On a "
+               "Mac: PyTorch cannot use its GPU (MPS).",
+    "model_unavailable": "The model doesn't run on this device or computer: UniRig needs an NVIDIA card.",
     "out_of_memory": "The graphics card or the computer ran out of memory.",
     "bad_weights": "A weights file is missing, or could not be loaded as the model's weights.",
     "rig_failed": "The model made no usable rig for this model file.",

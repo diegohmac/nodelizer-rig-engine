@@ -115,6 +115,50 @@ def card(torch, asked):
             "capability": chosen["capability"], "devices": len(devices)}
 
 
+def host_card(torch, kind, mode=None):
+    """The `card` facts for the processor or a Mac's GPU, in the CUDA card's shape (PROTOCOL.md, Devices):
+    device 0, the chip's name, the computer's memory (a Mac's GPU shares it), `capability` the kind and on
+    a Mac its memory mode (`cpu:lean`)."""
+    from .. import host
+
+    if kind == "mps" and not torch.backends.mps.is_available():
+        raise EngineError("no_cuda", "PyTorch cannot use this Mac's GPU (MPS)", torch=torch.__version__,
+                          built_for=None)
+    facts = host.facts()
+    name = f"{facts['name']} GPU" if kind == "mps" else facts["name"]
+    return {"device": 0, "card": name, "free_bytes": facts["free_bytes"], "total_bytes": facts["total_bytes"],
+            "capability": f"{kind}:{mode}" if mode else kind, "devices": 1}
+
+
+class MpsMemory:
+    """The most memory Metal held for PyTorch while the step ran, read four times a second (PyTorch keeps
+    no peak for MPS)."""
+
+    def __init__(self, torch):
+        import threading
+
+        self._torch = torch
+        self.peak = 0
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, name="mps-memory", daemon=True)
+        self._thread.start()
+
+    def _loop(self):
+        while True:
+            try:
+                self.peak = max(self.peak, int(self._torch.mps.driver_allocated_memory()))
+            except Exception:
+                return
+            if self._stop.wait(0.25):
+                return
+
+    def stop(self):
+        self._stop.set()
+        self._thread.join(timeout=2)
+        self.peak = max(self.peak, int(self._torch.mps.driver_allocated_memory()))
+        return self.peak
+
+
 def versions(torch=None):
     found = {"python": sys.version.split()[0]}
     if torch is not None:

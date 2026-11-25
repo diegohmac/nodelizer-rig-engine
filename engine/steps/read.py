@@ -4,10 +4,13 @@ Loads Blender, never PyTorch. The arrays are exactly what that model's loader re
 (SkinTokens' BpyParser.load, or UniRig's extract with its simplification to 50,000 faces), so the
 rig step sees what upstream code would have seen.
 """
-from .. import ENGINE_VERSION, layout, plainnpz, workspace
+import sys
+
+from .. import ENGINE_VERSION, devices, layout, plainnpz, workspace
 
 
 def run(args, events):
+    devices.require_model(args.model, None, sys.platform)
     work = workspace.work_folder(args.work)
     workspace.set_environment(work)
     source = workspace.input_file(args.input, workspace.MODEL_FILE_SUFFIXES, "model file")

@@ -1,10 +1,10 @@
 # Rig engine protocol, version 1
 
-The rig engine rigs a 3D character with SkinTokens or UniRig. The app runs it as a separate program, one step per process, each started through the app's sandbox launcher (`run-restricted.exe` on Windows). Steps pass plain files to each other in one work folder. Blender (`bpy`) and PyTorch are never loaded in the same process: `read` and `write` load Blender, `rig` and `probe` load PyTorch. `protocol.schema.json` describes every line the engine prints; this file says what the lines mean.
+The rig engine rigs a 3D character with SkinTokens or UniRig. The app runs it as a separate program, one step per process, each started through the app's sandbox: the launcher `run-restricted.exe` on Windows, `sandbox-exec` with the profile `mac/rig-engine.sb` on a Mac. Steps pass plain files to each other in one work folder. Blender (`bpy`) and PyTorch are never loaded in the same process: `read` and `write` load Blender, `rig` and `probe` load PyTorch. `protocol.schema.json` describes every line the engine prints; this file says what the lines mean.
 
 ## Packaged layout
 
-One root folder holds everything that runs, so one read grant covers it. The app installs it at `%APPDATA%\Nodelizer\free-rig\engine\<version>\`.
+One root folder holds everything that runs, so one read grant covers it. The app installs it at `%APPDATA%\Nodelizer\free-rig\engine\<version>\` on Windows. A Mac root has the same shape with the Python environment's executable at `python/bin/python3.11`; it runs on Apple silicon with the macOS in `ENGINE.json`'s `minimum_macos` (14.0) or later, is about 1.2 GB in 23,700 files with no links, and works from any folder: every library links inside the root or to the system's. Of Python's own archive it keeps what an import may need; its installer (`ensurepip`), `venv`, IDLE, Tk and Tcl, `lib2to3`, the build files (`config-3.11-darwin`, headers, `libpython3.11.dylib`), its scripts and manual pages are left out (`build/mac/sources_mac.py`, `PYTHON_PARTS_REMOVED`).
 
 ```
 <root>\
@@ -13,7 +13,7 @@ One root folder holds everything that runs, so one read grant covers it. The app
   engine\                 this engine: rigengine.py, engine\, standin\, models\ (both models' code), docs
 ```
 
-`ENGINE.json` holds `engine_version`, `protocol` (1), `python` (`python/tools/python.exe`, relative to the root), `entry` (`engine/rigengine.py`), the two models' commits, the SHA-256 of every input the build used, the patch list, the weights each model needs (`weights`: relative path and SHA-256, as in Weights below), and `longest_relative_path` with the `path_limit` it was checked against.
+`ENGINE.json` holds `engine_version`, `protocol` (1), `platform` (`win32-x64` or `darwin-arm64`), `models` (the models this root carries: both on Windows, `skintokens` alone on a Mac), `python` (`python/tools/python.exe`, or `python/bin/python3.11` on a Mac, relative to the root), `entry` (`engine/rigengine.py`), the models' commits (`unirig_commit` is null on a Mac), the SHA-256 of every input the build used, the patch list, the weights each model needs (`weights`: relative path and SHA-256, as in Weights below), and `longest_relative_path` with the `path_limit` it was checked against. A Mac root's also holds `minimum_macos` (`14.0`), the oldest macOS it runs on, for the release manifest to repeat so the app can check it before downloading (the app checks `ENGINE.json`'s again after unpacking): the newest `LC_BUILD_VERSION` minimum among the root's 264 Mach-O files (scipy's libraries and PyTorch's OpenMP runtime say 14.0; Python 11.0, Blender's module 11.2). It is declared in `build/mac/sources_mac.py` (`MIN_MACOS`), and the build reads every Mach-O file's headers (`build/mac/macho.py`) and fails if one needs a newer macOS.
 
 No path below the root is longer than 160 characters: the build fails above that (`build/build_engine.py`, `PATH_LIMIT`). Windows' classic limit is 259 characters; the install path is 88 characters with the longest Windows user name (20) and a 15 character version, which leaves 171; 160 keeps 11 to spare for profile folders like `C:\Users\name.DOMAIN`. This engine folder's longest path is in `ENGINE.json` (85 characters for engine 0.1.0). The Python environment is placed by the release and isn't checked by this build; the Windows kit reports its longest path.
 
@@ -26,11 +26,11 @@ python\tools\python.exe -I -B -u -X utf8 engine\rigengine.py probe [--light] [--
 python\tools\python.exe -I -B -u -X utf8 engine\rigengine.py read  --model M --input FILE --output W\a.read.npz --work W
 python\tools\python.exe -I -B -u -X utf8 engine\rigengine.py rig   --model M --input W\a.read.npz --output W\a.rig.npz --work W
                                                                    --weights F --seed N [--keep-skeleton] [--standard-names on|off]
-                                                                   [--stage skeleton|skin] [--cache C] [--device N]
+                                                                   [--stage skeleton|skin] [--cache C] [--device D] [--precision P]
 python\tools\python.exe -I -B -u -X utf8 engine\rigengine.py write --rig W\a.rig.npz [--input FILE] --output W\a.glb --work W
 ```
 
-Paths relative to the root here; every path given to the engine is absolute. `-I` keeps the person's Python settings out (the engine sets its own paths), `-B` writes no `.pyc` files into the root, `-u` sends every line at once, `-X utf8` makes paths with accents safe. The working directory doesn't matter.
+On a Mac the same, with `python/bin/python3.11` and forward slashes. Paths relative to the root here; every path given to the engine is absolute. `-I` keeps the person's Python settings out (the engine sets its own paths), `-B` writes no `.pyc` files into the root, `-u` sends every line at once, `-X utf8` makes paths with accents safe. The working directory doesn't matter.
 
 ## Output
 
@@ -43,7 +43,7 @@ Paths relative to the root here; every path given to the engine is absolute. `-I
 
 ## Stages and how long they take
 
-Times from the Windows rounds on an RTX 5090 with the whole card free; "longest expected" allows for a slow disk, a busy computer and a card short of memory (which can make generating four or five times slower). Kill a step that sends no line for 60 seconds.
+Times from the Windows rounds on an RTX 5090 with the whole card free (a Mac's are under Devices); "longest expected" allows for a slow disk, a busy computer and a card short of memory (which can make generating four or five times slower). Kill a step that sends no line for 60 seconds.
 
 | Step | Stage | Usual | Longest expected |
 | --- | --- | --- | --- |
@@ -70,7 +70,9 @@ Reports what this computer offers. Never loads Blender, never loads weights.
 - `--light`: the cards and their free memory only. Read through NVML, the NVIDIA driver's own library: about 0.2 seconds and no video memory. If NVML doesn't load, PyTorch is asked instead (as below).
 - Without `--light`: also loads PyTorch (3 to 5 seconds; CUDA starts, which may hold a few hundred MB on the first card until the process ends; free memory still comes from NVML when it loads) and reports `python`, `torch`, `cuda`, `cuda_available`, and for each model `models.<model>`: `code` (its code is in the engine folder), `needs_free_bytes` (below), `normal_speed_on_default_device`, and with `--weights MODEL=FOLDER` whether that folder holds every weight file (`weights`, `missing_weights`). `--verify-weights` also reads every weight file and compares its SHA-256 (`verified`, per file: `present`, `bytes`, `sha256`, `ok`).
 
-Always: `engine_version`, `protocol`, `light`, `package` (from `ENGINE.json`), `devices` (each card's `index`, `name`, `total_bytes`, `free_bytes`, and `capability` when PyTorch was asked), `devices_from` (`nvml` or `torch`), `driver` (from NVML), `default_device`.
+Always: `engine_version`, `protocol`, `light`, `package` (from `ENGINE.json`), `devices` (each card's `index`, `name`, `total_bytes`, `free_bytes`, and `capability` when PyTorch was asked), `devices_from` (`nvml` or `torch`; `host` on a Mac), `driver` (from NVML), `default_device`.
+
+On a Mac there is one device, index 0: the processor, named by the chip, with the memory installed and available (Devices), and `capability` `cpu:fast` or `cpu:lean`, the memory mode a rig would run in. The facts come from the system, not PyTorch (`devices_from: host`), so `--light` loads no library: 0.15 s (0.6 s on a new root). Light or not, it lists `models.skintokens` with `needs_free_bytes` for that mode, `code` and `normal_speed_on_default_device`; without `--light` it also loads PyTorch for `torch`. UniRig is never listed.
 
 `needs_free_bytes` is the free video memory a model needs to run at normal speed: SkinTokens 5.5 GiB (5905580032), UniRig 7.5 GiB (8053063680). These are the card peaks measured on Windows (SkinTokens 4.6 to 5.1 GiB; UniRig's skeleton pass 7.1 GiB, its skin pass 6.7 GiB) plus 0.4 GiB. With less free, Windows spills into system memory: the rig still comes out, slower (SkinTokens took 4.5 times as long at 5.2 GiB free). The `rig` step reports the same figure in its `card` line and result.
 
@@ -100,9 +102,11 @@ The model makes the rig from a read file and writes a rig file (below). Before a
 | `--keep-skeleton` | Skin the file's own skeleton, keeping its bone names and parents. SkinTokens gives the bones back at its own positions, up to 1.5 of its quantization steps from the file's. If the file has no skeleton, one is made and the result says so in `keep_skeleton`. If the model can't keep it, the step fails with `skeleton_not_kept`. |
 | `--stage skeleton\|skin` | UniRig only, required: which of its two passes (Sequences). |
 | `--cache C` | A folder the app keeps between runs, for CUDA's compiled kernels. Without it they go under the work folder and are compiled again each run (a few seconds for UniRig's skin pass). Safe to reuse after a kill (Folders). |
-| `--device N` | The card, numbered as `probe`, NVML and `nvidia-smi` number them. Default: the card with the most memory, the lowest number on a tie. A number with no card fails with `no_cuda`. |
+| `--device D` | `N` or `cuda:N`: the NVIDIA card, numbered as `probe`, NVML and `nvidia-smi` number them; `cuda`: the card with the most memory, the lowest number on a tie. `cpu`: the processor. `mps`: a Mac's GPU. Default: `cuda` on Windows, `cpu` on a Mac (Devices). A number with no card fails with `no_cuda`. |
+| `--precision P` | `bfloat16` or `float32`, for `cpu` and `mps` only, for measuring. Default: the device's own (Devices). On CUDA the models always run in their own bfloat16. |
+| `--memory fast\|lean` | A Mac only, for tests: the memory mode (Devices). Default: by the memory installed. Elsewhere `bad_arguments`. |
 
-Result: `model`, `output`, `seed`, `stage` (`final`, or `skeleton` for UniRig's first pass), `bones`, `skeleton` (`made` or `kept`), `names` (`standard`, `numbered`, `kept`, or `model` for UniRig's first pass), `standard_names` (`asked`, `matched`, `layout`, `placement_warnings`), `keep_skeleton` (a sentence when keeping was asked but the file had no skeleton), `keep_check` (how the kept bones compared), `input_skeleton_ignored` (SkinTokens: the file's own skeleton, not wanted, could not be read and was left out), `fingerprints` (short hashes of the sampled `points`, `tokens`, `joints` and `skin`, the same hashing as the Windows kit's `st_rig.py`, for comparing runs), `memory` (the `card` line's fields, `needs_free_bytes`, `peak_allocated_bytes`, `peak_reserved_bytes`), `cache` (with `--cache`: `stale_markers`, `cuda_cache_emptied`), `python`, `torch`, `cuda`.
+Result: `model`, `output`, `seed`, `stage` (`final`, or `skeleton` for UniRig's first pass), `bones`, `skeleton` (`made` or `kept`), `names` (`standard`, `numbered`, `kept`, or `model` for UniRig's first pass), `standard_names` (`asked`, `matched`, `layout`, `placement_warnings`), `keep_skeleton` (a sentence when keeping was asked but the file had no skeleton), `keep_check` (how the kept bones compared), `input_skeleton_ignored` (SkinTokens: the file's own skeleton, not wanted, could not be read and was left out), `fingerprints` (short hashes of the sampled `points`, `tokens`, `joints` and `skin`, the same hashing as the Windows kit's `st_rig.py`, for comparing runs), `memory` (the `card` line's fields, `needs_free_bytes`, `peak_allocated_bytes`, `peak_reserved_bytes`; off CUDA they mean what Devices says), `cache` (with `--cache`: `stale_markers`, `cuda_cache_emptied`), `python`, `torch`, `cuda`.
 
 ### write
 
@@ -147,6 +151,60 @@ Two small config files fix the networks' shapes. They are not weights and ship i
 
 The engine numbers cards as NVML and `nvidia-smi` do: it sets `CUDA_DEVICE_ORDER=PCI_BUS_ID` before PyTorch loads, so CUDA's device N is the same card (without it, CUDA puts the fastest card first). `probe` lists the cards with that number; `rig --device N` uses card N; without `--device`, the card with the most memory. Only NVIDIA cards that PyTorch can use count.
 
+## Devices
+
+`rig` runs on one of three kinds of device (`engine/devices.py`):
+
+| Device | Where | Number type | Models |
+| --- | --- | --- | --- |
+| `cuda` | Windows (and Linux): an NVIDIA card | the models' own: SkinTokens under `torch.autocast('cuda', bfloat16)`, UniRig as its authors run it | both |
+| `cpu` | anywhere: the processor | `float32` | SkinTokens |
+| `mps` | a Mac: its GPU through PyTorch's MPS | `bfloat16` | SkinTokens |
+
+On CUDA nothing changed: the models run exactly as before devices were added, and the Windows fingerprints stay the same. Off CUDA, SkinTokens' driver runs the same code with the autocast moved to the device (switched off for `float32`, with the model's weights in float32), and the skin step's one cast to the card's number type follows the model's (`engine/skintokens/rig.py`). UniRig needs CUDA (its sparse convolutions and flash attention have no other code): `model_unavailable`.
+
+**A Mac's default is the processor in float32.** Measured on an M3 Max with 36 GB (lean mode unless it says otherwise), SkinTokens, `mine_rodin`, seed 12345, each step in the sandbox:
+
+| Device, number type | Rig step | Generating | Skinning | Peak memory | Skeleton |
+| --- | --- | --- | --- | --- | --- |
+| processor, float32 (the default, lean) | 370 s | 335 s | 29 s | 5.6 GB | 52 bones, Mixamo; the same as in a Linux container |
+| processor, float32, fast | 137 s | 106 s | 24 s | 11.0 GB | the same, bit for bit |
+| processor, bfloat16 | 466 s | 133 s | 328 s | 5.0 GB | 52 bones, Mixamo, further from Windows |
+| MPS, bfloat16 | 111 s | 96 s | 9 s | 15.6 GB (8.2 GB of it Metal's) | 55 bones, numbered: not the skeleton any other device makes |
+| MPS, float32 | ran out of memory | | | | |
+
+Correctness and memory decide before speed: the default has to make the skeleton every other device makes and fit a Mac with 16 GB. MPS is repeatable (the same fingerprints twice) but its kernels and bfloat16 rounding steer the beam search onto another skeleton, and it needs more memory than such a Mac has. `--device mps` stays for measuring.
+
+**Memory modes on a Mac.** Generating rebuilds a slightly larger cache at every token, and macOS's allocator keeps every freed large block for reuse, so the step's footprint doubles. With `MallocLargeCache=0` the allocator gives them back: the same rig bit for bit, generating about three times slower. So a Mac's `rig` step runs in one of two modes, chosen by the memory installed, with nothing for the person to choose:
+
+| Mode | When | `MallocLargeCache` | `mine_rodin` rig step | Peak | `needs_free_bytes` |
+| --- | --- | --- | --- | --- | --- |
+| `fast` | 30 GiB or more installed (32 GB Macs report a little less) | not set | 145 s | 11.1 GB (10.3 GiB) | 13 GiB (13958643712): the largest fast peak, 11.3 GiB for a kept skeleton, plus 1.7 GiB |
+| `lean` | below that (16 and 24 GB Macs) | `0` | 370 to 430 s | 5.7 GB (5.3 GiB) | 7 GiB (7516192768): the largest lean peak, 5.7 GiB for a kept skeleton, plus 1.3 GiB |
+
+Both made identical fingerprints for `mine_rodin`, `example_tira` (66 s and 9.3 GiB fast, 147 s and 4.9 GiB lean) and the kept skeleton of `example_tira_tail.fbx` (134 s and 11.3 GiB fast). The setting is read only when a process starts, so the `rig` step picks its mode first (`rigengine.py`, `engine/host.py`) and, when its environment doesn't match, starts itself again in place (same process id, before its first line). `rig --memory fast|lean` picks the mode for tests. Nothing the app passes is needed. If that restart fails, the step runs on in the mode it started in, and says which.
+
+**Which mode, where.** The mode is the second half of `capability`, a field every line already has: `cpu:fast` or `cpu:lean` in the `card` line and the result's `memory` (the mode the step ran in), and in `probe`'s device (the mode a rig would run in). Off a Mac `capability` is `cpu` with no mode, and on CUDA the card's compute capability as before.
+
+**The `card` line and `memory` off CUDA** keep the CUDA shape: `device` 0, `devices` 1, `capability` the device and on a Mac its memory mode, `card` the chip's name (`Apple M3 Max`, or `Apple M3 Max GPU` for `mps`), `total_bytes` the computer's memory, `free_bytes` what macOS could hand out now (free, inactive, speculative and purgeable pages: Activity Monitor's memory available). A Mac's GPU shares that memory. In the result, `peak_allocated_bytes` is the process's peak memory footprint (what Activity Monitor shows as Memory, Metal's memory included), and `peak_reserved_bytes` the most Metal held for PyTorch on `mps`, or the same peak on `cpu`. On Linux the peak is the resident peak.
+
+`needs_free_bytes` on a Mac is the available memory SkinTokens needs in the mode (table above). With less available macOS swaps; the rig still comes out, slower. `probe` reports it under `models.skintokens`, light or not, and `normal_speed_on_default_device` compares it with the memory available now.
+
+**Time on a Mac** (M3 Max, the default): `starting` 0.1 s after the process starts, `loading_libraries` about 1 s, `card` 4 s, `loading_model` under 1 s, generating 2 to 6 minutes and skinning 10 to 35 s (tables above and below), so allow 15 minutes for generating and 3 for skinning on a slower Mac, where the Windows table says 300 s. `read` takes 1.5 to 2.5 s and `write` 2 to 4 s.
+
+On the default in lean mode, each character with seed 12345, against the Windows rigs (RTX 5090, CUDA bfloat16):
+
+| Character | Rig step | Peak memory | Bones | Against Windows |
+| --- | --- | --- | --- | --- |
+| `mine_rodin` | 370 s | 5.6 GB | 52, Mixamo | same bones, parents and names; joints moved at most 0.7% of the character's size; 5.7% of vertices have another strongest bone |
+| `mine_trellis` | 234 s | 5.3 GB | 34, numbered | another skeleton: Windows made 49 numbered bones. The processor in a Linux container made the same 34 bone tree as the Mac, joints within 2.9% of the size: the processor and the card part ways here, not the Mac |
+| `example_tira` | 143 s | 5.3 GB | 22, Mixamo | the same skeleton bit for bit; the skin differs in its last digits |
+| `example_tira_tail.fbx`, kept | 265 s | 6.1 GB | 58, kept | the same bones bit for bit; 2.3% of vertices have another strongest bone |
+
+Each repeats bit for bit when run again. Killing a `rig` step gives its memory back at once and leaves what it leaves on Windows (Folders).
+
+**The first start of a new root is slow**: macOS checks each library the first time it is loaded from a new place, so the first `read` took 10 to 30 s and the first full `probe` 7 to 8 s; later starts take the times above. `probe --light` loads no library and takes 0.6 s on a new root, 0.15 s after.
+
 ## Folders
 
 The engine writes only inside the work folder (and the cache folder when given). Outputs must be inside the work folder, must not exist yet (nothing is overwritten), and are written under a temporary name and renamed into place. Links are refused.
@@ -180,6 +238,8 @@ The launcher passes exactly the variables Windows needs to start a program and l
 | `NUMBER_OF_PROCESSORS` | The thread pools of NumPy, OpenMP and PyTorch size themselves by it. |
 | `PROCESSOR_ARCHITECTURE` | Python and the libraries read the machine type from it. |
 | `LOCALAPPDATA` | Windows works out the AppContainer's own folders from it and won't start a program in one without it (the launcher exits with `0x4E4C5207`). Inside, the engine sees the container's folder, not the person's, and then points it into the work folder. |
+
+On a Mac the app passes nothing: every step runs with an empty environment, and the engine sets what it needs (below). The sandbox is `sandbox-exec -f mac/rig-engine.sb` with six parameters, each a real path (no links): `ROOT` (the engine root), `PYTHON` (`ROOT/python/bin/python3.11`), `WEIGHTS` (SkinTokens' weights folder), `INPUT` (the folder of the model file, or the work folder), `WORK` and `CACHE` (the work folder when there is no cache folder); and for `read` and `write` only, `METAL=allow`. The profile denies everything else: every network, local sockets and the system log's included; reading anywhere but the system's own libraries and those folders; writing anywhere but `WORK` and `CACHE`; starting any program but that Python (the `rig` step starts itself again, Devices); and the GPU, except that `METAL=allow` lets Blender's steps open Metal's driver (`AGXDeviceUserClient`): Blender's module asks Metal for the GPU's name as it starts, though it draws nothing, and crashes without it. `probe` and `rig` never get it, so `rig --device mps` fails there with `no_cuda`; MPS would need the same rule. `test-mac.sh` checks every refusal and Blender's start.
 
 No `PATH` is needed: Python finds its own libraries beside `python.exe`, PyTorch adds its folder of CUDA libraries itself (the engine adds it too, for spconv and torch_scatter), and the driver's libraries load from the system folder. No `CUDA_VISIBLE_DEVICES`: `rig --device` chooses the card.
 
@@ -218,6 +278,8 @@ The engine sets these itself at the start of every step, before Blender or PyTor
 | `BLENDER_USER_RESOURCES` | `W\cache\blender\resources` | Blender's user resources. |
 | `TQDM_DISABLE` | `1` | No progress bars in the log. |
 
+On a Mac the `rig` step in lean mode also has `MallocLargeCache=0`, set as it starts itself again (Devices).
+
 ## Error codes
 
 Every `error` line has `code` and `message` (for the log, not for people). Some codes add fields; no other code carries them (`protocol.schema.json` checks this).
@@ -229,7 +291,8 @@ Every `error` line has `code` and `message` (for the log, not for people). Some 
 | `read_failed` | Blender could not read the model file. | |
 | `no_mesh` | The model file has no mesh with faces. | |
 | `skeleton_not_kept` | The skeleton could not be kept: the model gave back other bones than the file has (SkinTokens: a different count, order or parents, or a bone more than 1.5 quantization steps away; UniRig: bones it dropped, such as a second root). | `keep_check` |
-| `no_cuda` | No NVIDIA card PyTorch can use: no card, no card with the asked number, a driver too old for this PyTorch, or a card it has no code for. | `torch`, `built_for`, `devices` |
+| `no_cuda` | No NVIDIA card PyTorch can use: no card, no card with the asked number, a driver too old for this PyTorch, or a card it has no code for. With `--device mps`: PyTorch can't use the Mac's GPU. | `torch`, `built_for`, `devices` |
+| `model_unavailable` | The model doesn't run here: UniRig needs an NVIDIA card, so on a Mac every step refuses it, and elsewhere `rig` refuses it on `cpu` or `mps`. Sent before anything loads. | |
 | `out_of_memory` | The card or the computer ran out of memory. On Windows the card itself rarely reports this; see the `card` line. | |
 | `bad_weights` | A weight file is missing (`missing` names them), or could not be loaded as the model's weights. | `missing` |
 | `rig_failed` | The model made no usable rig for this model file (for example no complete skeleton, or no skin for it). Another seed may help. | |
@@ -278,5 +341,6 @@ The model's own frame and mesh are kept because `write` runs the model's own tra
 ## Repeatability
 
 - SkinTokens is seeded right before its one job, after the model has loaded, and runs with `model.eval()`. Its two skin samplers that took their seed from the system take it from NumPy's seeded generator (patches `st-vae-rng-*`). The model file is fetched the way a data loader worker would fetch it (the sandbox allows no worker process). Same seed, card, driver and engine: the same rig bit for bit. Another computer may give another rig for the same seed.
+- On the processor (a Mac's default) SkinTokens repeats bit for bit too, with the same processor count. It makes the same skeleton on a Mac as in a Linux container; the skin's last digits move with the number of threads. For the same seed it can make another skeleton than CUDA does, as another card could (Devices).
 - UniRig is seeded at the start of each pass, as its `run.py` does. The skeleton repeats bit for bit; the skin differs slightly run to run on the card (atomic additions in its sparse convolution).
 - `write` seeds NumPy with the rig file's seed: both models' exports draw random numbers (SkinTokens nudges bones that sit on their parent; UniRig's merge picks the axis order from a random subset of points).

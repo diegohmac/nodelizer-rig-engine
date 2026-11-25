@@ -4,7 +4,9 @@ Loads Blender, never PyTorch. It runs the model's own export with the arrays the
 result is what the model's own pipeline gives: SkinTokens' transfer_rigging, or UniRig's skin export
 followed by its merge. Original mesh, materials and textures come from the original file.
 """
-from .. import glbinfo, layout, plainnpz, weights, workspace
+import sys
+
+from .. import devices, glbinfo, layout, plainnpz, weights, workspace
 from ..events import EngineError
 
 
@@ -14,6 +16,7 @@ def run(args, events):
     rig_path = workspace.input_file(args.rig, (".npz",), "rig file")
     arrays = plainnpz.load(rig_path, "rig file")
     model, stage = layout.check_rig(arrays)
+    devices.require_model(model, None, sys.platform)
     if stage == "final":
         if not args.input:
             raise EngineError("bad_arguments", "--input, the original model file, is needed")

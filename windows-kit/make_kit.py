@@ -22,6 +22,8 @@ def files():
         for item in found:
             if "__pycache__" in item.parts or item.suffix == ".pyc":
                 continue
+            if item.relative_to(REPO).parts[:2] == ("build", "mac"):  # the Mac root's build, not for Windows
+                continue
             yield item, "rig-engine/" + item.relative_to(REPO).as_posix()
     for source, target in KIT_FILES.items():
         yield REPO / "windows-kit" / source, "engine-kit/" + target

@@ -67,7 +67,12 @@ def build_parser():
     rig.add_argument("--stage", choices=("skeleton", "skin"), help="UniRig only: which of its two passes")
     rig.add_argument("--weights", required=True, help="this model's weights folder")
     rig.add_argument("--cache", help="a folder kept between runs for CUDA's compiled kernels")
-    rig.add_argument("--device", type=int, help="the CUDA device, numbered as nvidia-smi numbers them")
+    rig.add_argument("--device", help="cuda, cuda:N or N (an NVIDIA card, numbered as nvidia-smi numbers "
+                                      "them), cpu, or mps (a Mac's GPU); default: the platform's")
+    rig.add_argument("--precision", choices=("bfloat16", "float32"),
+                     help="cpu and mps only: the number type, for measuring; default: the device's")
+    rig.add_argument("--memory", choices=("fast", "lean"),
+                     help="a Mac only: the memory mode, for tests; default: by installed memory (fast from 32 GB)")
 
     write = sub.add_parser("write", help="Blender writes the rig onto the original model file.")
     write.add_argument("--rig", required=True, help="the rig file")

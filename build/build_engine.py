@@ -39,7 +39,13 @@ from sources import ARCHIVES, SKINTOKENS_COMMIT, SOURCES, UNIRIG_COMMIT  # noqa:
 # Our own files copied into the engine folder.
 OWN = ["rigengine.py", "engine", "standin", "LICENSE", "README.md", "PROTOCOL.md", "PATCHES.md", "THIRD_PARTY.md",
        "protocol.schema.json"]
-PYTHON = "python/tools/python.exe"  # inside the root: the signed Python of the Windows kit, as it is laid out
+# What each platform's root holds: where its Python's executable sits below the root, and which models
+# it carries. A Mac has no NVIDIA card, so it carries SkinTokens only (UniRig needs CUDA).
+PLATFORMS = {
+    "win32-x64": {"python": "python/tools/python.exe", "models": ("skintokens", "unirig")},
+    "darwin-arm64": {"python": "python/bin/python3.11", "models": ("skintokens",)},
+}
+PYTHON = PLATFORMS["win32-x64"]["python"]  # the Windows kit's signed Python, as it is laid out
 # Windows' classic path limit is 259 characters. The app installs the root at
 #   C:\Users\<name>\AppData\Roaming\Nodelizer\free-rig\engine\<version>\
 # which is 88 characters with a 20 character user name (Windows' longest) and a 15 character version.
@@ -124,28 +130,37 @@ def longest_path(folder, prefix):
     return longest
 
 
-def build_engine(downloads, root, allow_fetch):
+def _model_of(where):
+    return Path(where).parts[1]  # models/<model>/...
+
+
+def build_engine(downloads, root, allow_fetch, platform="win32-x64", extra=None):
     sys.path.insert(0, str(REPO))
     from engine import ENGINE_VERSION, PROTOCOL_VERSION
     from engine.weights import CONFIGS, WEIGHTS
+
+    target = PLATFORMS[platform]
+    carried = target["models"]
+    archives = {name: where for name, where in ARCHIVES.items() if _model_of(where) in carried}
 
     out, manifest_path = root / "engine", root / "ENGINE.json"
     for path in (out, manifest_path):
         if path.exists():
             raise SystemExit(f"STOP. {path} exists already. Remove it first (it is rebuilt from scratch).")
-    code_inputs = [name for name, (_u, _d, kind, _p) in SOURCES.items() if kind == "code"]
+    code_inputs = [name for name, (_u, _d, kind, place) in SOURCES.items() if kind == "code" and
+                   _model_of(place or ARCHIVES[name]) in carried]
     used = check_inputs(downloads, code_inputs, allow_fetch)
     root.mkdir(parents=True, exist_ok=True)
     building = root / f"engine.building-{os.getpid()}"
     try:
         models = building / "models"
-        for archive, where in ARCHIVES.items():
+        for archive, where in archives.items():
             unpack(downloads / archive, building / where)
             print(f"unpacked           {where}", flush=True)
-        apply_patches(models, log=lambda line: print(line, flush=True))
-        apply_removals(models, log=lambda line: print(line, flush=True))
+        apply_patches(models, log=lambda line: print(line, flush=True), models=carried)
+        apply_removals(models, log=lambda line: print(line, flush=True), models=carried)
         for name, (_url, _digest, kind, where) in SOURCES.items():
-            if kind == "code" and where is not None:
+            if kind == "code" and where is not None and _model_of(where) in carried:
                 link_or_copy(downloads / name, building / where)
                 print(f"placed             {where}", flush=True)
         copy_own(building)
@@ -155,18 +170,21 @@ def build_engine(downloads, root, allow_fetch):
         manifest = {
             "engine_version": ENGINE_VERSION,
             "protocol": PROTOCOL_VERSION,
-            "python": PYTHON,
+            "platform": platform,
+            "models": list(carried),
+            "python": target["python"],
             "entry": "engine/rigengine.py",
             "skintokens_commit": SKINTOKENS_COMMIT,
-            "unirig_commit": UNIRIG_COMMIT,
+            "unirig_commit": UNIRIG_COMMIT if "unirig" in carried else None,
             "inputs": used,
-            "patches": [patch[0] for patch in PATCHES],
-            "removed": [f"{model}/{rel}" for model, rel, _ in REMOVALS],
-            "weights": WEIGHTS,
+            "patches": [patch[0] for patch in PATCHES if patch[1] in carried],
+            "removed": [f"{model}/{rel}" for model, rel, _ in REMOVALS if model in carried],
+            "weights": {model: files for model, files in WEIGHTS.items() if model in carried},
             "configs": {model: {f"engine/models/{model}/{rel}": digest for rel, digest in files.items()}
-                        for model, files in CONFIGS.items()},
+                        for model, files in CONFIGS.items() if model in carried},
             "longest_relative_path": length,
             "path_limit": PATH_LIMIT,
+            **(extra or {}),
         }
         building.rename(out)
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -177,11 +195,13 @@ def build_engine(downloads, root, allow_fetch):
     print(f"build done         {out}", flush=True)
 
 
-def build_weights(downloads, folder, allow_fetch):
+def build_weights(downloads, folder, allow_fetch, models=("skintokens", "unirig")):
     sys.path.insert(0, str(REPO))
     from engine.weights import WEIGHTS
 
     for model, names in WEIGHT_SOURCES.items():
+        if model not in models:
+            continue
         target = folder / model
         if target.exists():
             print(f"left alone         {target} (exists)", flush=True)
@@ -209,6 +229,10 @@ def main():
     parser.add_argument("--downloads", required=True, type=Path)
     parser.add_argument("--root", type=Path, help="the package root to put engine/ and ENGINE.json in")
     parser.add_argument("--weights-out", type=Path, help="where to lay out one weights folder per model")
+    parser.add_argument("--platform", choices=sorted(PLATFORMS), default="win32-x64",
+                        help="which root to build; a Mac root carries SkinTokens only")
+    parser.add_argument("--models", default="skintokens,unirig",
+                        help="for --weights-out: which models' weights, comma separated")
     parser.add_argument("--fetch", action="store_true")
     parser.add_argument("--fetch-only", action="store_true", help="fetch and check the code inputs, build nothing")
     args = parser.parse_args()
@@ -219,9 +243,9 @@ def main():
     if args.root is None and args.weights_out is None:
         parser.error("give --root, --weights-out or both")
     if args.root is not None:
-        build_engine(downloads, args.root.resolve(), args.fetch)
+        build_engine(downloads, args.root.resolve(), args.fetch, args.platform)
     if args.weights_out is not None:
-        build_weights(downloads, args.weights_out.resolve(), args.fetch)
+        build_weights(downloads, args.weights_out.resolve(), args.fetch, tuple(args.models.split(",")))
 
 
 if __name__ == "__main__":

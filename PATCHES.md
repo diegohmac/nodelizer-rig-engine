@@ -18,6 +18,7 @@ The rule was to drive the models from our own code (`engine/skintokens`, `engine
 | `st-debug-export-no-bpy` | skintokens/src/model/tokenrig.py | A debug export imported Blender inside the torch side (tokenrig.py:313). |
 | `st-npz-no-pickle` | skintokens/src/data/datapath.py | Its npz loader allowed pickle; plain arrays load the same without it. |
 | `st-unirig-npz-no-pickle` | skintokens/src/data/datapath.py | The second npz loader, the same change. |
+| `st-flash3-check-cpu` | skintokens/src/model/michelangelo/utils/misc.py | Michelangelo asked CUDA for the card's name when imported, which fails without one (processor, Mac); with a card the answer is unchanged. |
 | `ur-opt-local` | unirig/configs/model/unirig_ar_350m_1024_81920_float32.yaml | OPT's config is read from the engine folder, not the network (kit patch 5, made relative). |
 | `ur-opt-sdpa` | unirig/configs/model/unirig_ar_350m_1024_81920_float32.yaml | OPT runs on PyTorch's own attention (kit patch 6). |
 | `ur-ptv3-no-flash` | unirig/configs/model/unirig_skin.yaml | The mesh encoder (PTv3) takes its path without flash-attn (kit patch 7). |
@@ -38,6 +39,8 @@ The rule was to drive the models from our own code (`engine/skintokens`, `engine
 The kit's patch 3 (SkinTokens' helper listening on 127.0.0.1) is gone: the helper isn't shipped at all.
 
 ## Left out of the engine folder
+
+A Mac engine folder (`build_engine.py --platform darwin-arm64`) carries SkinTokens alone: UniRig's code, its config file and its patches are left out, since UniRig needs an NVIDIA card. Everything below applies to both.
 
 | Left out | Why |
 | --- | --- |
@@ -61,4 +64,5 @@ These change how the models run without touching their code.
 - **One process.** No data loader workers: SkinTokens' fetch is seeded as worker 0 would be (Windows work-1); UniRig's own command already used none.
 - **Restricted checkpoint loading for UniRig.** The driver opens UniRig's checkpoints itself with `torch.load(weights_only=True)` inside `torch.serialization.safe_globals([Box])`, instead of leaving that to Lightning.
 - **No log folders.** Lightning gets `logger=False` and a scratch root folder; UniRig's extract helpers log into the read step's scratch folder.
+- **Off CUDA** (`engine/skintokens/rig.py`, `_adapt`). SkinTokens wraps its work in `torch.autocast(device_type='cuda', dtype=torch.bfloat16)`. On the processor or a Mac's GPU the driver points that autocast at the device instead (switched off for float32, with the model turned to float32 after loading), and the skin VAE's one hand made cast of its query to bfloat16 follows the keys' type. It also sends a `skinning` line when the skin is decoded. On CUDA none of this runs.
 - **Relative paths.** Both models name configs and checkpoints relative to their own folder, so the rig step changes into it (read only); every path it writes is absolute and in the work folder.

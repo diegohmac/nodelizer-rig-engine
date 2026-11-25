@@ -198,6 +198,11 @@ PATCHES = [
      "        d = np.load(self.path, allow_pickle=True)\n        parents = bn(",
      "        d = np.load(self.path, allow_pickle=False)  # rig engine: no pickle\n        parents = bn(",
      "The second npz loader, the same change."),
+    ("st-flash3-check-cpu", "skintokens", "src/model/michelangelo/utils/misc.py",
+     '        self.available = "H100" in get_device_type()\n',
+     '        self.available = torch.cuda.is_available() and "H100" in get_device_type()  # rig engine\n',
+     "Michelangelo asked CUDA for the card's name when imported, which fails without one (processor, Mac); "
+     "with a card the answer is unchanged."),
     # UniRig
     ("ur-opt-local", "unirig", "configs/model/unirig_ar_350m_1024_81920_float32.yaml",
      "pretrained_model_name_or_path: facebook/opt-350m",
@@ -296,10 +301,12 @@ class PatchError(Exception):
     pass
 
 
-def apply_patches(models_root, log=print):
-    """Applies every patch to the unpacked trees under models_root (models_root/<model>/...)."""
+def apply_patches(models_root, log=print, models=("skintokens", "unirig")):
+    """Applies every patch of the given models to the unpacked trees under models_root/<model>/."""
     models_root = Path(models_root)
     for patch_id, model, rel, old, new, _reason in PATCHES:
+        if model not in models:
+            continue
         path = models_root / model / rel
         try:
             raw = path.read_bytes()
@@ -314,15 +321,17 @@ def apply_patches(models_root, log=print):
         path.write_bytes(text.replace(old, new).encode("utf-8"))
         log(f"patched  {patch_id:28s} {model}/{rel}")
     for model, rel, text in MUST_NOT_CONTAIN:
-        if text in (models_root / model / rel).read_text(encoding="utf-8"):
+        if model in models and text in (models_root / model / rel).read_text(encoding="utf-8"):
             raise PatchError(f"{model}/{rel} still contains {text!r}")
 
 
-def apply_removals(models_root, log=print):
+def apply_removals(models_root, log=print, models=("skintokens", "unirig")):
     import shutil
 
     models_root = Path(models_root)
     for model, rel, _reason in REMOVALS:
+        if model not in models:
+            continue
         path = models_root / model / rel
         if path.is_dir():
             shutil.rmtree(path)

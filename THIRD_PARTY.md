@@ -36,3 +36,16 @@ The engine runs on the Windows kit's Python environment (`dist/rig-engine-test/p
 | transformers 4.57.6, lightning 2.6.6, open3d 0.20.0, trimesh, scipy, numpy and the other packages | their PyPI publishers | pypi.org | versions and checksums in `requirements-win.txt` | various open source licences (kit table); not checked one by one here |
 
 The engine needs neither pyrender, nor timm, nor torchvision, nor flash-attn: the patches and the stand in in `standin/flash_attn` replace them.
+
+## On a Mac
+
+A Mac root (`build/mac/build_mac.py`) carries SkinTokens' code and weights only, never UniRig's, and none of NVIDIA's files: PyTorch's macOS wheel has no CUDA libraries, and spconv, cumm, torch_scatter, torch_cluster and open3d (UniRig's) are not installed. Its Python environment is built from these pinned inputs, each checked by SHA-256:
+
+| Piece | Publisher | Source | Version | SHA-256 | Licence |
+| --- | --- | --- | --- | --- | --- |
+| Python 3.11.18, `install_only_stripped` for `aarch64-apple-darwin` | Astral (python-build-standalone), built from the Python Software Foundation's source | github.com/astral-sh/python-build-standalone, release `20261110` | 3.11.18 | `3afb0567b2a2b30b3a7341bd143cb4e8a69f3d8e95d4641218eaa45f0fabbd07` (the release's own SHA256SUMS) | MIT (python-build-standalone) and the PSF licence (Python); the libraries it bundles (OpenSSL, SQLite, libffi, xz, zlib and others) under their own licences, listed in the release |
+| PyTorch 2.7.1, `cp311-none-macosx_11_0_arm64` | PyTorch Foundation | pypi.org | 2.7.1 | `aea4fc1bf433d12843eb2c6b2204861f43d8364597697074c8d38ae2507f8730` | BSD 3; bundles LLVM's OpenMP runtime (`libomp.dylib`, Apache 2.0 with LLVM exceptions), built for macOS 14.0 |
+| Blender as a Python module, `bpy` 4.2.0, `cp311-cp311-macosx_11_0_arm64` | Blender Foundation | pypi.org | 4.2.0 | `e6e8857c9f483d42f5388642601080ad3e7488970cbc9e59efeedf4a8c26c90b` | GPL 3.0. Its libraries say macOS 11.2 or later (`LC_BUILD_VERSION`). |
+| the other 38 packages (transformers, diffusers, lightning, numpy, scipy, trimesh and what they need) | their PyPI publishers | pypi.org | `build/mac/requirements-mac.txt` | `build/mac/requirements-mac.txt` | various open source licences; not checked one by one here |
+
+The package list (`build/mac/requirements-mac.in`) is SkinTokens' Windows pins for the packages its three steps import; `build/mac/lock.sh` resolves it for macOS on Apple silicon with every file's SHA-256. Ten of the locked packages that no step imports (a network client among them) are removed after installing (`build/mac/sources_mac.py`, `NOT_SHIPPED`).
