@@ -24,16 +24,16 @@ Both models bundle the shape encoder from Michelangelo (github.com/NeuralCarver/
 
 ## Needed to run, not in this repository
 
-The engine runs on the Windows kit's Python environment (`dist/rig-engine-test/python`, every package at the version and checksum in its `requirements-win.txt`). The pieces it loads:
+The Windows engine uses the Python archive and wheels pinned in the app repository's `tools/rig-engine/sources.json`. The pieces it loads:
 
 | Piece | Publisher | Source | Revision | Licence |
 | --- | --- | --- | --- | --- |
-| Python 3.11.9 | Python Software Foundation | nuget.org, package `python` 3.11.9 | package SHA-256 `9283876d58c017e0e846f95b490da3bca0fc0a6ee1134b2870677cfb7eec3c67` | PSF licence (kit table) |
-| PyTorch 2.7.1 with CUDA 12.8 | PyTorch Foundation | download.pytorch.org/whl/cu128 | checksums in `requirements-win.txt` | BSD 3, bundles NVIDIA's CUDA libraries under NVIDIA's licence (kit table) |
+| CPython 3.11.18, `install_only_stripped` for `x86_64-pc-windows-msvc` | Astral, built from the Python Software Foundation's source | github.com/astral-sh/python-build-standalone | `f31751f4a8483f5ac7cd77ad83f8dfb80d9f2a7245bff1585e27516c777fb46f` | MIT and the PSF licence. The release lists the licences of the bundled libraries. |
+| PyTorch 2.11.0 and TorchVision 0.26.0 with CUDA 12.8 | PyTorch Foundation | download.pytorch.org/whl/cu128 | checksums in `tools/rig-engine/sources.json` | BSD 3, with NVIDIA's CUDA libraries under NVIDIA's licence |
 | Blender as a Python module, `bpy` 4.2.0 | Blender Foundation | pypi.org | checksums in `requirements-win.txt` | GPL 3.0 (kit table) |
 | spconv-cu126 2.3.8, cumm-cu126 0.7.11 | Yan Yan (traveller59) | pypi.org | checksums in `requirements-win.txt` | Apache 2.0 (kit table) |
-| torch_scatter 2.1.2, torch_cluster 1.6.3 | PyG team | data.pyg.org/whl/torch-2.7.0+cu128 | checksums in the kit's `kit\fetch.py` | MIT (kit table) |
-| transformers 4.57.6, lightning 2.6.6, open3d 0.20.0, trimesh, scipy, numpy and the other packages | their PyPI publishers | pypi.org | versions and checksums in `requirements-win.txt` | various open source licences (kit table); not checked one by one here |
+| torch_scatter 2.1.2, torch_cluster 1.6.3 | PyG team | data.pyg.org/whl/torch-2.11.0+cu128 | checksums in `tools/rig-engine/sources.json` | MIT (kit table) |
+| Transformers 5.24.1, Diffusers 0.38.0, Pillow 13.0.0, Lightning 2.6.6, Open3D 0.20.0 and the other packages | their PyPI publishers | pypi.org | versions and checksums in `tools/rig-engine/sources.json` | various open source licences (kit table); not checked one by one here |
 
 The engine needs neither pyrender, nor timm, nor torchvision, nor flash-attn: the patches and the stand in in `standin/flash_attn` replace them.
 
@@ -44,8 +44,8 @@ A Mac root (`build/mac/build_mac.py`) carries SkinTokens' code and weights only,
 | Piece | Publisher | Source | Version | SHA-256 | Licence |
 | --- | --- | --- | --- | --- | --- |
 | Python 3.11.18, `install_only_stripped` for `aarch64-apple-darwin` | Astral (python-build-standalone), built from the Python Software Foundation's source | github.com/astral-sh/python-build-standalone, release `20261110` | 3.11.18 | `3afb0567b2a2b30b3a7341bd143cb4e8a69f3d8e95d4641218eaa45f0fabbd07` (the release's own SHA256SUMS) | MIT (python-build-standalone) and the PSF licence (Python); the libraries it bundles (OpenSSL, SQLite, libffi, xz, zlib and others) under their own licences, listed in the release |
-| PyTorch 2.7.1, `cp311-none-macosx_11_0_arm64` | PyTorch Foundation | pypi.org | 2.7.1 | `aea4fc1bf433d12843eb2c6b2204861f43d8364597697074c8d38ae2507f8730` | BSD 3; bundles LLVM's OpenMP runtime (`libomp.dylib`, Apache 2.0 with LLVM exceptions), built for macOS 14.0 |
+| PyTorch 2.13.0, `cp311-cp311-macosx_14_0_arm64` | PyTorch Foundation | pypi.org | 2.13.0 | `e76f9bcecc52b8ff711239a2f7547d5353df95878ab232f0773c1d95928b92f8` | Apache 2.0, Apache 2.0 with LLVM exceptions, BSD 2 and 3 clause, Boost 1.0 and MIT, as listed in the wheel's metadata |
 | Blender as a Python module, `bpy` 4.2.0, `cp311-cp311-macosx_11_0_arm64` | Blender Foundation | pypi.org | 4.2.0 | `e6e8857c9f483d42f5388642601080ad3e7488970cbc9e59efeedf4a8c26c90b` | GPL 3.0. Its libraries say macOS 11.2 or later (`LC_BUILD_VERSION`). |
-| the other 38 packages (transformers, diffusers, lightning, numpy, scipy, trimesh and what they need) | their PyPI publishers | pypi.org | `build/mac/requirements-mac.txt` | `build/mac/requirements-mac.txt` | various open source licences; not checked one by one here |
+| Other packages, including Transformers 5.24.1, Diffusers 0.38.0 and Pillow 13.0.0 | their PyPI publishers | pypi.org | `build/mac/requirements-mac.txt` | `build/mac/requirements-mac.txt` | various open source licences; not checked one by one here |
 
 The package list (`build/mac/requirements-mac.in`) is SkinTokens' Windows pins for the packages its three steps import; `build/mac/lock.sh` resolves it for macOS on Apple silicon with every file's SHA-256. Ten of the locked packages that no step imports (a network client among them) are removed after installing (`build/mac/sources_mac.py`, `NOT_SHIPPED`).

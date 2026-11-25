@@ -141,7 +141,7 @@ def _fake_skintokens(monkeypatch):
     for name in ("src", "src.data", "src.model", "src.server", "src.tokenizer", "src.rig_package",
                  "src.rig_package.info", "transformers"):
         module(name)
-    module("transformers.modeling_utils", no_init_weights=NoInit)
+    module("transformers.initialization", no_init_weights=NoInit)
     module("src.data.transform", Transform=Transform)
     module("src.model.spec", ModelSpec=ModelSpec)
     module("src.server.spec", get_model=get_model)

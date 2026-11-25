@@ -72,7 +72,7 @@ def _synchronize(torch, device):
 
 
 def _load_model(torch, weights_folder, events, device):
-    from transformers.modeling_utils import no_init_weights
+    from transformers.initialization import no_init_weights
 
     from src.data.transform import Transform
     from src.model.spec import ModelSpec
